@@ -110,15 +110,13 @@ final class ThreadPool {
                     if (workers.size() < maxSize) {
                         // 线程池扩容
                         log.debug("扩容线程池...");
-                        int size = workers.size();
-                        for(int i = size;i < maxSize;i++){
-                            Worker worker = new Worker(keepAliveTime,timeUnit);
-                            workers.add(worker);
-                            worker.start();
-                        }
+                        Worker worker = new Worker(task,keepAliveTime,timeUnit);
+                        workers.add(worker);
+                        worker.start();
+                    }else{
+                        // 救急线程满，走拒绝策略
+                        queue.tryPut(rejectPolicy,task);
                     }
-                    // 走拒绝策略
-                    queue.tryPut(rejectPolicy,task);
                 }
             }
         } finally {
@@ -129,7 +127,7 @@ final class ThreadPool {
     private void shrinkingWorkers(Worker worker){
         lock.lock();
         try {
-            log.debug("线程空闲超时：{}",worker.getName());
+            log.debug("线程超时空闲关闭：{}",worker.getName());
             workers.remove(worker);
         } finally {
             lock.unlock();
