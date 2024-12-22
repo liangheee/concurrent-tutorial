@@ -109,7 +109,7 @@ final class ThreadPool {
                 }else{
                     if (workers.size() < maxSize) {
                         // 线程池扩容
-                        log.debug("扩容线程池...");
+                        log.debug("生成救急线程...");
                         Worker worker = new Worker(task,keepAliveTime,timeUnit);
                         workers.add(worker);
                         worker.start();
