@@ -141,21 +141,21 @@ final class ThreadPool {
          * true-核心线程
          * false-救急线程
          */
-        private final boolean isCore;
+        final boolean isCore;
 
-        private Runnable task;
+        Runnable task;
 
-        private final long keepAliveTime;
+        final long keepAliveTime;
 
-        private final TimeUnit timeUnit;
+        final TimeUnit timeUnit;
 
-        private Worker(boolean isCore,long keepAliveTime,TimeUnit timeUnit){
+        Worker(boolean isCore,long keepAliveTime,TimeUnit timeUnit){
             this.isCore = isCore;
             this.keepAliveTime = keepAliveTime;
             this.timeUnit = timeUnit;
         }
 
-        private Worker(boolean isCore,Runnable task,long keepAliveTime,TimeUnit timeUnit){
+        Worker(boolean isCore,Runnable task,long keepAliveTime,TimeUnit timeUnit){
             this.isCore = isCore;
             this.task = task;
             this.keepAliveTime = keepAliveTime;
