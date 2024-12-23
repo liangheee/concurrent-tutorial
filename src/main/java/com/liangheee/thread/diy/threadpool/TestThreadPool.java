@@ -86,7 +86,7 @@ final class ThreadPool {
         try {
             for(int i = 0;i < coreSize;i++){
                 log.debug("预热线程池");
-                Worker worker = new Worker(keepAliveTime, timeUnit);
+                Worker worker = new Worker(true,keepAliveTime, timeUnit);
                 workers.add(worker);
                 worker.start();
             }
@@ -99,7 +99,7 @@ final class ThreadPool {
         lock.lock();
         try {
             if(workers.size() < coreSize){
-                Worker worker = new Worker(task,keepAliveTime,timeUnit);
+                Worker worker = new Worker(true,task,keepAliveTime,timeUnit);
                 workers.add(worker);
                 worker.start();
             } else {
@@ -110,7 +110,7 @@ final class ThreadPool {
                     if (workers.size() < maxSize) {
                         // 线程池扩容
                         log.debug("生成救急线程...");
-                        Worker worker = new Worker(task,keepAliveTime,timeUnit);
+                        Worker worker = new Worker(false,task,keepAliveTime,timeUnit);
                         workers.add(worker);
                         worker.start();
                     }else{
@@ -124,17 +124,24 @@ final class ThreadPool {
         }
     }
 
-    private void shrinkingWorkers(Worker worker){
+    private void closeEmergencyWorkers(Worker worker){
         lock.lock();
         try {
-            log.debug("线程超时空闲关闭：{}",worker.getName());
-            workers.remove(worker);
+            if(!worker.isCore){
+                log.debug("救急线程超时空闲关闭：{}",worker.getName());
+                workers.remove(worker);
+            }
         } finally {
             lock.unlock();
         }
     }
 
     private final class Worker extends Thread {
+        /**
+         * true-核心线程
+         * false-救急线程
+         */
+        private final boolean isCore;
 
         private Runnable task;
 
@@ -142,12 +149,14 @@ final class ThreadPool {
 
         private final TimeUnit timeUnit;
 
-        public Worker(long keepAliveTime,TimeUnit timeUnit){
+        private Worker(boolean isCore,long keepAliveTime,TimeUnit timeUnit){
+            this.isCore = isCore;
             this.keepAliveTime = keepAliveTime;
             this.timeUnit = timeUnit;
         }
 
-        public Worker(Runnable task,long keepAliveTime,TimeUnit timeUnit){
+        private Worker(boolean isCore,Runnable task,long keepAliveTime,TimeUnit timeUnit){
+            this.isCore = isCore;
             this.task = task;
             this.keepAliveTime = keepAliveTime;
             this.timeUnit = timeUnit;
@@ -155,9 +164,17 @@ final class ThreadPool {
 
         @Override
         public void run() {
-            while(task != null || (task = queue.poll(keepAliveTime,timeUnit)) != null) {
+            while(
+                    task != null ||
+                    (isCore && (task = queue.take()) != null) ||
+                    (!isCore && (task = queue.poll(keepAliveTime,timeUnit)) != null)
+            ){
                 try {
-                    log.debug("正在执行...{}",task);
+                    if(isCore){
+                        log.debug("核心线程正在执行...{}",task);
+                    }else{
+                        log.debug("救急线程正在执行...{}",task);
+                    }
                     task.run();
                 }catch (Exception e){
                     e.printStackTrace();
@@ -166,8 +183,8 @@ final class ThreadPool {
                 }
             }
 
-            // 当前线程等待时间超出最大空闲时间，进行缩容
-            shrinkingWorkers(this);
+            // 当前救急线程等待时间超出最大空闲时间，进行缩容
+            closeEmergencyWorkers(this);
         }
     }
 
