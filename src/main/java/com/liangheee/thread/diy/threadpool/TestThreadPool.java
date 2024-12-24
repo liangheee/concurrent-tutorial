@@ -44,6 +44,7 @@ public class TestThreadPool {
                 log.debug("{}",j + 1);
             });
         }
+        threadPool.shutdown();
     }
 }
 
@@ -136,6 +137,44 @@ final class ThreadPool {
         }
     }
 
+    public void shutdown(){
+        Thread shutdownThread = new Thread(() -> {
+            for(;;){
+                if(queue.size() == 0){
+                    break;
+                }
+                // 避免空转
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            lock.lock();
+            try {
+                log.debug("shutdown...");
+                for (Worker worker : workers) {
+                    for(;;){
+                        if(!worker.runningTask){
+                            break;
+                        }
+                    }
+                    worker.shutdown = true;
+                    worker.interrupt();
+                    if(worker.isCore){
+                        log.debug("关闭核心线程：{}",worker.getName());
+                    }else{
+                        log.debug("关闭救急线程：{}",worker.getName());
+                    }
+                }
+            } finally {
+                lock.unlock();
+            }
+        }, "shutdown-thread");
+        shutdownThread.start();
+    }
+
     private final class Worker extends Thread {
         /**
          * true-核心线程
@@ -148,6 +187,18 @@ final class ThreadPool {
         private final long keepAliveTime;
 
         private final TimeUnit timeUnit;
+
+        /**
+         * 是否正在运行任务
+         * 一定要加volatile，提升可见性，否则会出现线程安全问题
+         * 因为在线程池shutdown过程中，shutdownThread进行for循环会对worker.runningTask做优化缓存，获取的是工作内存中的数据
+         */
+        private volatile boolean runningTask;
+
+        /**
+         * 是否被线程池关闭
+         */
+        private boolean shutdown;
 
         private Worker(boolean isCore,long keepAliveTime,TimeUnit timeUnit){
             this.isCore = isCore;
@@ -164,18 +215,18 @@ final class ThreadPool {
 
         @Override
         public void run() {
-            while(
-                    task != null ||
+            while(task != null ||
                     (isCore && (task = queue.take()) != null) ||
-                    (!isCore && (task = queue.poll(keepAliveTime,timeUnit)) != null)
-            ){
+                    (!isCore && (task = queue.poll(keepAliveTime,timeUnit)) != null)){
                 try {
                     if(isCore){
                         log.debug("核心线程正在执行...{}",task);
                     }else{
                         log.debug("救急线程正在执行...{}",task);
                     }
+                    runningTask = true;
                     task.run();
+                    runningTask = false;
                 }catch (Exception e){
                     e.printStackTrace();
                 }finally {
@@ -183,8 +234,10 @@ final class ThreadPool {
                 }
             }
 
-            // 当前救急线程等待时间超出最大空闲时间，进行缩容
-            closeEmergencyWorkers(this);
+            // 救急线程等待时间超出最大空闲时间，关闭急救线程
+            if(!isCore && !shutdown){
+                closeEmergencyWorkers(this);
+            }
         }
     }
 
@@ -219,7 +272,8 @@ class BlockingQueue<T> {
                     log.debug("等待获取任务...");
                     emptyWaitSet.await();
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    log.debug("线程：{},不再等待任务",Thread.currentThread().getName());
+                    return null;
                 }
             }
             T task = queue.removeFirst();
@@ -242,7 +296,8 @@ class BlockingQueue<T> {
                     log.debug("超时等待获取任务...");
                     nanos = emptyWaitSet.awaitNanos(nanos);
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    log.debug("线程：{},不再等待任务",Thread.currentThread().getName());
+                    return null;
                 }
             }
             T task = queue.removeFirst();
