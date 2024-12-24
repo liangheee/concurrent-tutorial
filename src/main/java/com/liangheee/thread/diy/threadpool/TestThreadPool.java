@@ -44,6 +44,8 @@ public class TestThreadPool {
                 log.debug("{}",j + 1);
             });
         }
+
+        // TODO 为了避免线程池后续再次被用到，线程池应该有自己的状态，这里未做
         threadPool.shutdown();
     }
 }
